@@ -58,6 +58,7 @@ class Qwen3Attention(nn.Module):
         quant_config: Optional[QuantizationConfig] = None,
         rms_norm_eps: float = None,
         attention_bias: bool = False,
+        sliding_window_size: int = -1,
         prefix: str = "",
         alt_stream: Optional[torch.cuda.Stream] = None,
     ) -> None:
@@ -134,6 +135,7 @@ class Qwen3Attention(nn.Module):
             self.scaling,
             num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
+            sliding_window_size=sliding_window_size,
             prefix=add_prefix("attn", prefix),
         )
         self.alt_stream = alt_stream
@@ -217,6 +219,9 @@ class Qwen3DecoderLayer(nn.Module):
         rope_scaling = getattr(config, "rope_scaling", None)
         max_position_embeddings = getattr(config, "max_position_embeddings", 32768)
         head_dim = getattr(config, "head_dim", None)
+        # Get sliding window size from config (used by some Qwen3 variants)
+        sliding_window = getattr(config, "sliding_window", None)
+        sliding_window_size = sliding_window if sliding_window is not None else -1
         self.self_attn = Qwen3Attention(
             hidden_size=self.hidden_size,
             num_heads=config.num_attention_heads,
@@ -229,6 +234,7 @@ class Qwen3DecoderLayer(nn.Module):
             quant_config=quant_config,
             rms_norm_eps=config.rms_norm_eps,
             attention_bias=config.attention_bias,
+            sliding_window_size=sliding_window_size,
             prefix=add_prefix("self_attn", prefix),
             alt_stream=alt_stream,
         )
@@ -567,6 +573,14 @@ class Qwen3ForCausalLM(nn.Module):
 
     def load_kv_cache_scales(self, quantization_param_path: str) -> None:
         self.model.load_kv_cache_scales(quantization_param_path)
+
+    def get_attention_sliding_window_size(self):
+        """Return the sliding window size for attention if configured."""
+        sliding_window = getattr(self.config, "sliding_window", None)
+        if sliding_window is not None:
+            # Subtract 1 because the attention kernel uses two-sided inclusive window
+            return sliding_window - 1
+        return None
 
     def set_eagle3_layers_to_capture(self, layer_ids: Optional[List[int]] = None):
         if not self.pp_group.is_last_rank:
