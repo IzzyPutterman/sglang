@@ -645,7 +645,9 @@ class CudaGraphRunner:
             model_runner.spec_algorithm.is_eagle3()
             and model_runner.eagle_use_aux_hidden_state
         ):
-            self.model_runner.model.set_eagle3_layers_to_capture()
+            self.model_runner.model.set_eagle3_layers_to_capture(
+                self.model_runner.eagle_aux_hidden_state_layer_ids
+            )
 
         # Capture
         try:
